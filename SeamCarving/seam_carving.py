@@ -53,7 +53,7 @@ def find_seam(M, bt, indices):
         seam[i] = bt[i, seam[i+1]]
         s_trace[i] = indices[i, seam[i]]
 
-    print("removed " + str(s_trace))
+    # print("removed " + str(s_trace))
     return seam, s_trace
 
 
@@ -78,31 +78,30 @@ def remove_seam(img, indices, seam):
 
 
 # review!
-def duplicate_seam(img, image, seam, s_trace):
+def duplicate_seam(img, seam):
     h, w, _ = img.shape
-    tmp = np.zeros_like(image)
+
+    expanded = np.zeros((h, w+1, 3)) #.astype(dtype=int)
 
     for i in range(h):
-        tmp[i] = np.roll(image[i], -s_trace[i], axis=0)
-        img[i] = np.roll(img[i], -seam[i], axis=0)
+        j = seam[i]
 
-    # img = np.hstack((np.rot90(np.rot90([tmp[:,0]]), k=2), img))
-    # img = np.hstack((np.rot90(np.rot90([tmp[:,0]]), k=2), img))
+        if j == 0:
+            expanded[i, j, :] = img[i, j, :]
+            expanded[i, j+1:, :] = img[i, j:, :]
+            expanded[i, j+1, :] = img[i, j, :]
+        elif j == w-1:
+            expanded[i, :j+1, :] = img[i, :j+1, :]
+            expanded[i, j+1, :] = img[i, j, :]
+        else:
+            expanded[i, :j, :] = img[i, :j, :]
+            expanded[i, j+1:, :] = img[i, j:, :]
+            expanded[i, j, :] = img[i, j+1, :]
 
-    tmp = np.rot90(np.array([tmp[:,0]]))
-    # tmp = np.rot90(tmp)
-    tmp = np.rot90(tmp, k=2)
-    # img = np.hstack((tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp, tmp, img))
-    img = np.hstack((tmp, tmp, img))
-
-    for i in range(h):
-        img[i] = np.roll(img[i], seam[i], axis=0)
-
-    return img
-
+    return expanded
 
 
-def carve(img, image, indices, forward_implementation):
+def carve(img, indices, forward_implementation):
     """
     carve a seam out of an image
     """
@@ -147,13 +146,14 @@ def resize(image: NDArray, out_height: int, out_width: int, forward_implementati
     x_diff, y_diff = out_width-in_width, out_height-in_height
     indices = np.indices(gs_image.shape)[1]
     v_seams, h_seams = None, None
+    # v_pixels, h_pixels = None, None
     seams = None
     red = (255, 0, 0)
     black = (0, 0, 0)
 
     # for i in range(abs(x_diff)):
     for i in range(20):
-        img, seam, v_trace, indices = carve(img, image, indices, forward_implementation)
+        img, seam, v_trace, indices = carve(img, indices, forward_implementation)
 
         if i == 0:
             v_seams = np.array([v_trace])
@@ -162,8 +162,9 @@ def resize(image: NDArray, out_height: int, out_width: int, forward_implementati
             v_seams = np.vstack((v_seams, v_trace))
             seams = np.vstack((seams, seam))
 
+    img = image.copy()
     for i in range(len(v_seams)-1, -1, -1):
-        img = duplicate_seam(img, image, seams[i], v_seams[i])
+        img = duplicate_seam(img, seams[i])
 
     if v_seams is not None:
         vert = colorize(vert, red, v_seams)
@@ -174,7 +175,6 @@ def resize(image: NDArray, out_height: int, out_width: int, forward_implementati
         pass
 
     img = np.rot90(img, k=-1)
-
 
     end = time.time()
     print(end-start)
