@@ -8,6 +8,25 @@ import time
 NDArray = Any
 
 
+def calc_c_mat(img):
+    gs = utils.to_grayscale(img)
+
+    left = np.roll(gs, shift=1, axis=1)
+    left[:, 0] = 0
+    right = np.roll(gs, shift = -1, axis=1)
+    right[:, -1] = 0
+    up = np.roll(gs, shift = 1, axis=0)
+    up[0, :] = 0
+    left_minus_right = np.abs(left-right)
+    left_minus_right[:, 0] = 225.0
+    left_minus_right[:, -1] = 225.0
+    CL = left_minus_right + np.abs(up-left)
+    CV = left_minus_right
+    CR = left_minus_right + np.abs(up-right)
+
+    return CL, CV, CR
+
+
 def calc_cost(img, forward_implementation):
     """
     calculate the cost matrix and backtrack matrix
@@ -18,16 +37,23 @@ def calc_cost(img, forward_implementation):
     M = np.copy(E)
     backtrack = np.zeros_like(E, dtype=int)
 
+    if forward_implementation:
+        CL, CV, CR = calc_c_mat(img)
+    else:
+        CL, CV, CR = 0, 0, 0
+
     for i in range(1,h):
-        for j in range(w):
-            if j == 0:
-                idx = np.argmin(M[i-1, j:j+2])
-                backtrack[i, j] = idx + j
-                M[i, j] += M[i-1, idx + j]
-            else:
-                idx = np.argmin(M[i-1, j-1:j+2])
-                backtrack[i, j] = idx + j - 1
-                M[i, j] += M[i-1, idx + j - 1]
+        M_i_left = np.add(np.roll(M[i-1], shift=1), M[i]) + CL
+        M_i_left[0] = float("inf")
+        M_i_mid = np.add(M[i-1], M[i]) + CV
+        M_i_right = np.add(np.roll(M[i-1], shift=-1), M[i]) + CR
+        M_i_right[len(M_i_right)-1] = float("inf")
+        left_mid_right = np.array(M_i_left)
+        left_mid_right = np.vstack((left_mid_right, M_i_mid))
+
+        left_mid_right = np.vstack((left_mid_right, M_i_right))
+        M[i] = left_mid_right.min(axis=0)
+        backtrack[i] = np.subtract(np.add(left_mid_right.argmin(axis=0), np.arange(len(M[i]))), np.ones(len(M[i])))
 
     backtrack[0] = backtrack[1]
 
@@ -53,7 +79,6 @@ def find_seam(M, bt, indices):
         seam[i] = bt[i, seam[i+1]]
         s_trace[i] = indices[i, seam[i]]
 
-    # print("removed " + str(s_trace))
     return seam, s_trace
 
 
@@ -89,14 +114,14 @@ def duplicate_seam(img, seam):
         if j == 0:
             expanded[i, j, :] = img[i, j, :]
             expanded[i, j+1:, :] = img[i, j:, :]
-            expanded[i, j+1, :] = img[i, j, :]
+            # expanded[i, j+1, :] = img[i, j, :]
         elif j == w-1:
             expanded[i, :j+1, :] = img[i, :j+1, :]
             expanded[i, j+1, :] = img[i, j, :]
         else:
             expanded[i, :j, :] = img[i, :j, :]
             expanded[i, j+1:, :] = img[i, j:, :]
-            expanded[i, j, :] = img[i, j+1, :]
+            expanded[i, j, :] = img[i, j, :]
 
     return expanded
 
@@ -140,19 +165,16 @@ def resize(image: NDArray, out_height: int, out_width: int, forward_implementati
 
     img = image.copy()
     vert = image.copy()
-    hori = image.copy()
     gs_image = utils.to_grayscale(image)
     in_height, in_width = gs_image.shape
     x_diff, y_diff = out_width-in_width, out_height-in_height
     indices = np.indices(gs_image.shape)[1]
     v_seams, h_seams = None, None
-    # v_pixels, h_pixels = None, None
     seams = None
     red = (255, 0, 0)
     black = (0, 0, 0)
 
-    # for i in range(abs(x_diff)):
-    for i in range(20):
+    for i in range(abs(x_diff)):
         img, seam, v_trace, indices = carve(img, indices, forward_implementation)
 
         if i == 0:
@@ -162,17 +184,42 @@ def resize(image: NDArray, out_height: int, out_width: int, forward_implementati
             v_seams = np.vstack((v_seams, v_trace))
             seams = np.vstack((seams, seam))
 
-    img = image.copy()
-    for i in range(len(v_seams)-1, -1, -1):
-        img = duplicate_seam(img, seams[i])
+    if x_diff > 0:
+        img = image.copy()
+        for i in range(len(v_seams)-1, -1, -1):
+            img = duplicate_seam(img, seams[i])
+
+    x_panded = img.copy()
+    x_panded = np.rot90(x_panded)
 
     if v_seams is not None:
         vert = colorize(vert, red, v_seams)
 
+    # Horizontal seams
     img = np.rot90(img)
+    gs_image = utils.to_grayscale(img)
+    indices = np.indices(gs_image.shape)[1]
+    seams = None
 
     for i in range(abs(y_diff)):
-        pass
+        img, seam, h_trace, indices = carve(img, indices, forward_implementation)
+
+        if i == 0:
+            h_seams = np.array([h_trace])
+            seams = np.array([seam])
+        else:
+            h_seams = np.vstack((h_seams, h_trace))
+            seams = np.vstack((seams, seam))
+
+    if y_diff > 0:
+        img = x_panded.copy()
+        for i in range(len(h_seams)-1, -1, -1):
+            img = duplicate_seam(img, seams[i])
+
+    hori = x_panded.copy()
+    if h_seams is not None:
+        hori = colorize(hori, black, h_seams)
+        hori = np.rot90(hori, k=-1)
 
     img = np.rot90(img, k=-1)
 
@@ -180,4 +227,4 @@ def resize(image: NDArray, out_height: int, out_width: int, forward_implementati
     print(end-start)
 
     # return { 'resized' : img1, 'vertical_seams' : img2 ,'horizontal_seams' : img3}
-    return {'a':img, 'b':vert}
+    return {'resized':img, 'vertical_seams':vert, 'horizontal_seams':hori}
