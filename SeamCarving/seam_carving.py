@@ -119,7 +119,7 @@ def duplicate_seam(img, seam, indices, image):
     expanded = np.zeros((h, w+1, 3)) #.astype(dtype=int)
 
     for i in range(h):
-        j = seam[i]
+        j = indices[i][seam[i]]
 
         if j == 0:
             expanded[i, j, :] = img[i, j, :]
@@ -134,7 +134,11 @@ def duplicate_seam(img, seam, indices, image):
             expanded[i, j+1:, :] = img[i, j:, :]
             expanded[i, j, :] = img[i, j, :]
 
-    return expanded
+    _, indices = remove_seam(img, indices, seam)
+    stack_to_the_right = np.rot90(np.full((1, h), w))
+    indices = np.hstack((indices, stack_to_the_right))
+
+    return expanded, indices
 
 
 def carve(img, indices, forward_implementation):
@@ -161,7 +165,6 @@ def colorize(img, color, seams):
 
 def resize(image: NDArray, out_height: int, out_width: int, forward_implementation: bool) -> Dict[str, NDArray]:
     """
-
     :param image: ِnp.array which represents an image.
     :param out_height: the resized image height
     :param out_width: the resized image width
@@ -197,8 +200,11 @@ def resize(image: NDArray, out_height: int, out_width: int, forward_implementati
 
     if x_diff > 0:
         img = image.copy()
+        # exp_indices = np.indices((image.shape[0], image[1] + x_diff))[1]
+        # exp_indices = np.hstack((indices, exp_indices[:, image.shape[1]+1:]))
+        indices = np.indices(gs_image.shape)[1]
         for i in range(len(v_seams)-1, -1, -1):
-            img = duplicate_seam(img, v_seams[i], indices, image)
+            img, indices = duplicate_seam(img, v_seams[i], indices, image)
 
     x_panded = img.copy()
     x_panded = np.rot90(x_panded)
@@ -224,13 +230,17 @@ def resize(image: NDArray, out_height: int, out_width: int, forward_implementati
 
     if y_diff > 0:
         img = x_panded.copy()
+        # exp_indices = np.indices((x_panded.shape[0], x_panded.shape[1] + y_diff))[1]
+        # exp_indices = np.hstack((indices, exp_indices[:, x_panded.shape[1]+1:]))
+        indices = np.indices(gs_image.shape)[1]
         for i in range(len(h_seams)-1, -1, -1):
-            img = duplicate_seam(img, h_seams[i], indices, x_panded)
+            img, indices = duplicate_seam(img, h_seams[i], indices, x_panded)
 
     hori = x_panded.copy()
     if h_seams is not None:
         hori = colorize(hori, black, h_seams)
-        hori = np.rot90(hori, k=-1)
+    hori = np.rot90(hori, k=-1)
+
 
     img = np.rot90(img, k=-1)
 
