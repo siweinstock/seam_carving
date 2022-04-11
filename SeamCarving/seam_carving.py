@@ -39,14 +39,24 @@ def calc_cost(img, forward_implementation):
 
     if forward_implementation:
         CL, CV, CR = calc_c_mat(img)
-    else:
-        CL, CV, CR = 0, 0, 0
 
     for i in range(1,h):
-        M_i_left = np.add(np.roll(M[i-1], shift=1), M[i]) + CL
+        M_i_left = np.add(np.roll(M[i-1], shift=1), M[i])
+
+        if forward_implementation:
+            M_i_left += CL[i]
+
         M_i_left[0] = float("inf")
-        M_i_mid = np.add(M[i-1], M[i]) + CV
-        M_i_right = np.add(np.roll(M[i-1], shift=-1), M[i]) + CR
+        M_i_mid = np.add(M[i-1], M[i])
+
+        if forward_implementation:
+            M_i_mid += CV[i]
+
+        M_i_right = np.add(np.roll(M[i-1], shift=-1), M[i])
+
+        if forward_implementation:
+            M_i_right += CR[i]
+
         M_i_right[len(M_i_right)-1] = float("inf")
         left_mid_right = np.array(M_i_left)
         left_mid_right = np.vstack((left_mid_right, M_i_mid))
@@ -103,7 +113,7 @@ def remove_seam(img, indices, seam):
 
 
 # review!
-def duplicate_seam(img, seam):
+def duplicate_seam(img, seam, indices, image):
     h, w, _ = img.shape
 
     expanded = np.zeros((h, w+1, 3)) #.astype(dtype=int)
@@ -114,10 +124,11 @@ def duplicate_seam(img, seam):
         if j == 0:
             expanded[i, j, :] = img[i, j, :]
             expanded[i, j+1:, :] = img[i, j:, :]
-            # expanded[i, j+1, :] = img[i, j, :]
+
         elif j == w-1:
             expanded[i, :j+1, :] = img[i, :j+1, :]
             expanded[i, j+1, :] = img[i, j, :]
+
         else:
             expanded[i, :j, :] = img[i, :j, :]
             expanded[i, j+1:, :] = img[i, j:, :]
@@ -187,7 +198,7 @@ def resize(image: NDArray, out_height: int, out_width: int, forward_implementati
     if x_diff > 0:
         img = image.copy()
         for i in range(len(v_seams)-1, -1, -1):
-            img = duplicate_seam(img, seams[i])
+            img = duplicate_seam(img, v_seams[i], indices, image)
 
     x_panded = img.copy()
     x_panded = np.rot90(x_panded)
@@ -214,7 +225,7 @@ def resize(image: NDArray, out_height: int, out_width: int, forward_implementati
     if y_diff > 0:
         img = x_panded.copy()
         for i in range(len(h_seams)-1, -1, -1):
-            img = duplicate_seam(img, seams[i])
+            img = duplicate_seam(img, h_seams[i], indices, x_panded)
 
     hori = x_panded.copy()
     if h_seams is not None:
